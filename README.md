@@ -37,7 +37,17 @@ Une application de gestion de tâches style Kanban, fonctionnant comme une Progr
 
 ## Installation
 
-Aucune installation requise ! Ouvrez simplement `index.html` dans votre navigateur.
+### Option 1 : Mode simple (LocalStorage)
+Ouvrez simplement `index.html` dans votre navigateur.
+
+### Option 2 : Mode serveur (Fichier sur disque)
+1. Assurez-vous d'avoir Node.js installé
+2. Lancez le serveur :
+   ```bash
+   node server.js
+   ```
+3. Ouvrez http://localhost:3000 dans votre navigateur
+4. Les tâches seront sauvegardées dans `tasks.json`
 
 Pour installer comme PWA :
 1. Ouvrez l'application dans Chrome/Edge
@@ -49,16 +59,21 @@ Pour installer comme PWA :
 - `index.html` - Structure HTML
 - `style.css` - Styles CSS
 - `script.js` - Logique JavaScript
+- `server.js` - Serveur Node.js (stockage sur disque)
+- `tasks.json` - Fichier de données (créé automatiquement)
 - `manifest.json` - Configuration PWA
 - `sw.js` - Service Worker pour le mode offline
+- `.gitignore` - Fichiers à ignorer par Git
+- `README.md` - Documentation
 
 ## Technologies
 
 - HTML5
 - CSS3
 - JavaScript (ES6+)
+- Node.js
 - Service Workers
-- LocalStorage
+- API REST (fetch)
 
 ## Licence
 

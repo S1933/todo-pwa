@@ -11,9 +11,23 @@ document.addEventListener('DOMContentLoaded', () => {
         done: doneList,
     };
 
-    let tasks = JSON.parse(localStorage.getItem('tasks')) || [];
+    let tasks = [];
     let draggedTaskId = null;
     let selectedTaskId = null;
+
+    // Load tasks from server
+    const loadTasks = async () => {
+        try {
+            const response = await fetch('/api/tasks');
+            if (response.ok) {
+                tasks = await response.json();
+                renderBoard();
+            }
+        } catch (err) {
+            console.error('Failed to load tasks:', err);
+            tasks = [];
+        }
+    };
 
     const extractTags = (text) => {
         const tagRegex = /#([a-zA-Z0-9_-]+)/g;
@@ -41,7 +55,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return colors[Math.abs(hash) % colors.length];
     };
 
-    const makeEditable = (element, task) => {
+    const makeEditable = async (element, task) => {
         const currentText = removeTagsFromText(task.text);
         const input = document.createElement('input');
         input.type = 'text';
@@ -167,14 +181,14 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
 
-        const saveEdit = () => {
+        const saveEdit = async () => {
             hideEditSuggestions();
             const newText = input.value.trim();
             if (newText && newText !== currentText) {
                 const oldTags = extractTags(task.text);
                 task.text = newText + (oldTags.length > 0 ? ' ' + oldTags.map(t => '#' + t).join(' ') : '');
                 task.tags = extractTags(task.text);
-                saveTasks();
+                await saveTasks();
                 renderBoard();
             } else {
                 renderBoard();
@@ -188,8 +202,18 @@ document.addEventListener('DOMContentLoaded', () => {
         input.setSelectionRange(input.value.length, input.value.length);
     };
 
-    const saveTasks = () => {
-        localStorage.setItem('tasks', JSON.stringify(tasks));
+    const saveTasks = async () => {
+        try {
+            const response = await fetch('/api/tasks', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(tasks)
+            });
+            return response.ok;
+        } catch (err) {
+            console.error('Failed to save tasks:', err);
+            return false;
+        }
     };
 
     const renderBoard = () => {
@@ -250,7 +274,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     };
 
-    const addTask = () => {
+    const addTask = async () => {
         const text = newTaskInput.value.trim();
         if (text) {
             const tags = extractTags(text);
@@ -263,7 +287,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 pinned: isPinned
             };
             tasks.push(newTask);
-            saveTasks();
+            await saveTasks();
             renderBoard();
             newTaskInput.value = '';
         }
@@ -397,7 +421,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    window.addEventListener('keydown', (e) => {
+    window.addEventListener('keydown', async (e) => {
         if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) {
             return;
         }
@@ -409,7 +433,7 @@ document.addEventListener('DOMContentLoaded', () => {
             e.preventDefault();
             tasks = tasks.filter(t => t.id !== selectedTaskId);
             selectedTaskId = null;
-            saveTasks();
+            await saveTasks();
             renderBoard();
         }
 
@@ -418,7 +442,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const task = tasks.find(t => t.id === selectedTaskId);
             if (task) {
                 task.pinned = !task.pinned;
-                saveTasks();
+                await saveTasks();
                 renderBoard();
             }
         }
@@ -470,7 +494,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             task.status = columnOrder[newColIndex];
-            saveTasks();
+            await saveTasks();
             renderBoard();
         }
 
@@ -519,22 +543,22 @@ document.addEventListener('DOMContentLoaded', () => {
             list.classList.remove('drag-over');
         });
 
-        list.addEventListener('drop', (e) => {
+        list.addEventListener('drop', async (e) => {
             e.preventDefault();
             list.classList.remove('drag-over');
             if (draggedTaskId) {
                 const task = tasks.find(t => t.id === draggedTaskId);
                 if (task) {
                     task.status = list.dataset.status;
-                    saveTasks();
+                    await saveTasks();
                     renderBoard();
                 }
             }
         });
     });
 
-    // Initial Render
-    renderBoard();
+    // Initial Load
+    loadTasks();
 
     // Auto-focus on input
     newTaskInput.focus();
