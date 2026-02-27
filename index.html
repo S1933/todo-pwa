@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tableau de Tâches</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="manifest" href="manifest.json">
+</head>
+<body>
+    <header>
+        <h1>Mon Tableau de Tâches</h1>
+    </header>
+
+    <main class="board-container">
+        <div class="task-column" id="backlog-col">
+            <h2>Backlog</h2>
+            <div class="input-container">
+                <input type="text" id="new-task-input" placeholder="Nouvelle tâche...">
+                <button id="add-task-btn">Ajouter</button>
+            </div>
+            <ul class="task-list" id="backlog-list" data-status="backlog">
+                <!-- Tâches du backlog -->
+            </ul>
+        </div>
+
+        <div class="task-column" id="inprogress-col">
+            <h2>En Cours</h2>
+            <ul class="task-list" id="inprogress-list" data-status="inprogress">
+                <!-- Tâches en cours -->
+            </ul>
+        </div>
+
+        <div class="task-column" id="done-col">
+            <h2>Terminé</h2>
+            <ul class="task-list" id="done-list" data-status="done">
+                <!-- Tâches terminées -->
+            </ul>
+        </div>
+    </main>
+
+    <script src="script.js"></script>
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js');
+            });
+        }
+    </script>
+</body>
+</html>
