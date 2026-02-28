@@ -393,8 +393,33 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     newTaskInput.addEventListener('keydown', (e) => {
-        if (tagSuggestions.length === 0) return;
+        // Navigation vers les tâches quand il n'y a pas de suggestions de tags
+        if (tagSuggestions.length === 0) {
+            const columnOrder = ['backlog', 'inprogress', 'done'];
+            const currentColumn = 'backlog';
 
+            // Get tasks in backlog column, sorted (pinned first)
+            const columnTasks = tasks
+                .filter(t => t.status === currentColumn)
+                .sort((a, b) => {
+                    if (a.pinned && !b.pinned) return -1;
+                    if (!a.pinned && b.pinned) return 1;
+                    return 0;
+                });
+
+            if (columnTasks.length === 0) return;
+
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                newTaskInput.blur();
+                selectedTaskId = columnTasks[0].id;
+                renderBoard();
+                return;
+            }
+            return;
+        }
+
+        // Navigation dans les suggestions de tags
         if (e.key === 'ArrowDown') {
             e.preventDefault();
             selectedSuggestionIndex = (selectedSuggestionIndex + 1) % tagSuggestions.length;
@@ -423,6 +448,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     window.addEventListener('keydown', async (e) => {
         if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) {
+            return;
+        }
+
+        // Focus sur l'input quand on appuie sur 'n' ou 'N'
+        if ((e.key === 'n' || e.key === 'N') && !selectedTaskId) {
+            e.preventDefault();
+            newTaskInput.focus();
             return;
         }
 
@@ -470,6 +502,13 @@ document.addEventListener('DOMContentLoaded', () => {
             let nextIndex;
 
             if (e.key === 'ArrowUp') {
+                // Si on est sur la première tâche et qu'on appuie sur flèche haut, retourner à l'input
+                if (currentIndex === 0) {
+                    selectedTaskId = null;
+                    renderBoard();
+                    newTaskInput.focus();
+                    return;
+                }
                 nextIndex = currentIndex <= 0 ? columnTasks.length - 1 : currentIndex - 1;
             } else {
                 nextIndex = currentIndex === -1 || currentIndex >= columnTasks.length - 1 ? 0 : currentIndex + 1;
