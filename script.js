@@ -4,6 +4,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const doneList = document.getElementById('done-list');
     const addTaskBtn = document.getElementById('add-task-btn');
     const newTaskInput = document.getElementById('new-task-input');
+    // Fonction pour redimensionner automatiquement un textarea
+    const autoResize = (textarea) => {
+        textarea.style.height = 'auto';
+        textarea.style.height = textarea.scrollHeight + 'px';
+    };
 
     const lists = {
         backlog: backlogList,
@@ -12,7 +17,6 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     let tasks = [];
-    let draggedTaskId = null;
     let selectedTaskId = null;
 
     // Load tasks from server
@@ -30,7 +34,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const extractTags = (text) => {
-        const tagRegex = /#([a-zA-Z0-9_-]+)/g;
+        const tagRegex = /[#@]([a-zA-Z0-9_-]+)/g;
         const tags = [];
         let match;
         while ((match = tagRegex.exec(text)) !== null) {
@@ -40,7 +44,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const removeTagsFromText = (text) => {
-        return text.replace(/#([a-zA-Z0-9_-]+)/g, '').trim().replace(/\s+/g, ' ');
+        return text.replace(/[#@]([a-zA-Z0-9_-]+)/g, '').trim().replace(/\s+/g, ' ');
     };
 
     const getTagColor = (tag) => {
@@ -57,10 +61,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const makeEditable = async (element, task) => {
         const currentText = removeTagsFromText(task.text);
-        const input = document.createElement('input');
-        input.type = 'text';
+        const taskItem = element.closest('.task-item');
+        const input = document.createElement('textarea');
         input.classList.add('edit-input');
         input.value = currentText;
+        input.rows = 1;
+
+        // Mettre la tâche en cours d'édition au premier plan
+        if (taskItem) {
+            taskItem.style.position = 'relative';
+            taskItem.style.zIndex = '1000';
+        }
 
         let editSuggestionContainer = null;
         let editTagSuggestions = [];
@@ -121,10 +132,13 @@ document.addEventListener('DOMContentLoaded', () => {
             const cursorPos = input.selectionStart;
             const textBefore = input.value.substring(0, cursorPos);
             const textAfter = input.value.substring(cursorPos);
-            const hashIndex = textBefore.lastIndexOf('#');
-            const newText = textBefore.substring(0, hashIndex) + '#' + tag + ' ' + textAfter;
+            const lastHashIndex = textBefore.lastIndexOf('#');
+            const lastAtIndex = textBefore.lastIndexOf('@');
+            const tagIndex = lastHashIndex > lastAtIndex ? lastHashIndex : lastAtIndex;
+            const tagSymbol = lastHashIndex > lastAtIndex ? '#' : '@';
+            const newText = textBefore.substring(0, tagIndex) + tagSymbol + tag + ' ' + textAfter;
             input.value = newText;
-            const newCursorPos = hashIndex + tag.length + 2;
+            const newCursorPos = tagIndex + tag.length + 2;
             input.setSelectionRange(newCursorPos, newCursorPos);
             hideEditSuggestions();
             input.focus();
@@ -138,15 +152,18 @@ document.addEventListener('DOMContentLoaded', () => {
         };
 
         input.addEventListener('input', () => {
+            autoResize(input);
             const cursorPos = input.selectionStart;
             const textBeforeCursor = input.value.substring(0, cursorPos);
             const lastHashIndex = textBeforeCursor.lastIndexOf('#');
+            const lastAtIndex = textBeforeCursor.lastIndexOf('@');
+            const lastTagIndex = Math.max(lastHashIndex, lastAtIndex);
 
-            if (lastHashIndex !== -1) {
-                const textAfterHash = textBeforeCursor.substring(lastHashIndex + 1);
-                const hasSpaceAfterHash = textAfterHash.includes(' ');
-                if (!hasSpaceAfterHash) {
-                    showEditSuggestions(textAfterHash);
+            if (lastTagIndex !== -1) {
+                const textAfterTag = textBeforeCursor.substring(lastTagIndex + 1);
+                const hasSpaceAfterTag = textAfterTag.includes(' ');
+                if (!hasSpaceAfterTag) {
+                    showEditSuggestions(textAfterTag);
                     return;
                 }
             }
@@ -177,6 +194,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 e.preventDefault();
                 input.blur();
             } else if (e.key === 'Escape' && editTagSuggestions.length === 0) {
+                // Réinitialiser le z-index de la tâche avant de quitter
+                if (taskItem) {
+                    taskItem.style.zIndex = '';
+                    taskItem.style.position = '';
+                }
                 renderBoard();
             }
         });
@@ -189,10 +211,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 task.text = newText + (oldTags.length > 0 ? ' ' + oldTags.map(t => '#' + t).join(' ') : '');
                 task.tags = extractTags(task.text);
                 await saveTasks();
-                renderBoard();
-            } else {
-                renderBoard();
             }
+            // Réinitialiser le z-index de la tâche
+            if (taskItem) {
+                taskItem.style.zIndex = '';
+                taskItem.style.position = '';
+            }
+            renderBoard();
         };
 
         input.addEventListener('blur', saveEdit);
@@ -200,6 +225,7 @@ document.addEventListener('DOMContentLoaded', () => {
         element.replaceWith(input);
         input.focus();
         input.setSelectionRange(input.value.length, input.value.length);
+        autoResize(input);
     };
 
     const saveTasks = async () => {
@@ -238,7 +264,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (task.pinned) taskItem.classList.add('pinned');
                 if (hasPrio) taskItem.classList.add('prio');
                 if (task.id === selectedTaskId) taskItem.classList.add('selected');
-                taskItem.setAttribute('draggable', 'true');
                 taskItem.dataset.id = task.id;
 
                 taskItem.addEventListener('click', (e) => {
@@ -263,6 +288,19 @@ document.addEventListener('DOMContentLoaded', () => {
                         tagEl.classList.add('task-tag');
                         tagEl.textContent = tag;
                         tagEl.style.backgroundColor = getTagColor(tag);
+
+                        // Bouton de suppression du tag
+                        const removeBtn = document.createElement('span');
+                        removeBtn.classList.add('tag-remove');
+                        removeBtn.textContent = '×';
+                        removeBtn.addEventListener('click', async (e) => {
+                            e.stopPropagation();
+                            task.tags = task.tags.filter(t => t !== tag);
+                            await saveTasks();
+                            renderBoard();
+                        });
+                        tagEl.appendChild(removeBtn);
+
                         tagsContainer.appendChild(tagEl);
                     });
                     taskItem.appendChild(tagsContainer);
@@ -290,6 +328,7 @@ document.addEventListener('DOMContentLoaded', () => {
             await saveTasks();
             renderBoard();
             newTaskInput.value = '';
+            newTaskInput.style.height = 'auto';
         }
     };
 
@@ -357,12 +396,15 @@ document.addEventListener('DOMContentLoaded', () => {
         const textBefore = newTaskInput.value.substring(0, cursorPos);
         const textAfter = newTaskInput.value.substring(cursorPos);
 
-        const hashIndex = textBefore.lastIndexOf('#');
-        const newText = textBefore.substring(0, hashIndex) + '#' + tag + ' ' + textAfter;
+        const lastHashIndex = textBefore.lastIndexOf('#');
+        const lastAtIndex = textBefore.lastIndexOf('@');
+        const tagIndex = lastHashIndex > lastAtIndex ? lastHashIndex : lastAtIndex;
+        const tagSymbol = lastHashIndex > lastAtIndex ? '#' : '@';
+        const newText = textBefore.substring(0, tagIndex) + tagSymbol + tag + ' ' + textAfter;
 
         newTaskInput.value = newText;
         newTaskInput.focus();
-        const newCursorPos = hashIndex + tag.length + 2;
+        const newCursorPos = tagIndex + tag.length + 2;
         newTaskInput.setSelectionRange(newCursorPos, newCursorPos);
 
         hideTagSuggestions();
@@ -376,16 +418,19 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     newTaskInput.addEventListener('input', (e) => {
+        autoResize(newTaskInput);
         const cursorPos = newTaskInput.selectionStart;
         const textBeforeCursor = newTaskInput.value.substring(0, cursorPos);
         const lastHashIndex = textBeforeCursor.lastIndexOf('#');
+        const lastAtIndex = textBeforeCursor.lastIndexOf('@');
+        const lastTagIndex = Math.max(lastHashIndex, lastAtIndex);
 
-        if (lastHashIndex !== -1) {
-            const textAfterHash = textBeforeCursor.substring(lastHashIndex + 1);
-            const hasSpaceAfterHash = textAfterHash.includes(' ');
+        if (lastTagIndex !== -1) {
+            const textAfterTag = textBeforeCursor.substring(lastTagIndex + 1);
+            const hasSpaceAfterTag = textAfterTag.includes(' ');
 
-            if (!hasSpaceAfterHash) {
-                showTagSuggestions(textAfterHash);
+            if (!hasSpaceAfterTag) {
+                showTagSuggestions(textAfterTag);
                 return;
             }
         }
@@ -557,44 +602,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (e.key === 'Enter') addTask();
     });
 
-    // Drag and Drop
-    document.addEventListener('dragstart', (e) => {
-        if (e.target.classList.contains('task-item')) {
-            draggedTaskId = e.target.dataset.id;
-            setTimeout(() => e.target.classList.add('dragging'), 0);
-        }
-    });
-
-    document.addEventListener('dragend', (e) => {
-        if (e.target.classList.contains('task-item')) {
-            e.target.classList.remove('dragging');
-            draggedTaskId = null;
-        }
-    });
-
-    Object.values(lists).forEach(list => {
-        list.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            list.classList.add('drag-over');
-        });
-
-        list.addEventListener('dragleave', (e) => {
-            list.classList.remove('drag-over');
-        });
-
-        list.addEventListener('drop', async (e) => {
-            e.preventDefault();
-            list.classList.remove('drag-over');
-            if (draggedTaskId) {
-                const task = tasks.find(t => t.id === draggedTaskId);
-                if (task) {
-                    task.status = list.dataset.status;
-                    await saveTasks();
-                    renderBoard();
-                }
-            }
-        });
-    });
+    // Drag and Drop désactivé - utiliser les flèches directionnelles pour déplacer les tâches
 
     // Initial Load
     loadTasks();
