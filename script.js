@@ -18,6 +18,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let tasks = [];
     let selectedTaskId = null;
+    let activeTagFilter = null;
+    let searchQuery = '';
 
     // Load tasks from server
     const loadTasks = async () => {
@@ -180,10 +182,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     e.preventDefault();
                     editSelectedIndex = editSelectedIndex <= 0 ? editTagSuggestions.length - 1 : editSelectedIndex - 1;
                     updateEditSelection();
-                } else if (e.key === 'Enter' && editSelectedIndex !== -1) {
+                } else if (e.key === 'Enter' && editTagSuggestions.length > 0) {
                     e.preventDefault();
                     e.stopPropagation();
-                    selectEditTag(editTagSuggestions[editSelectedIndex]);
+                    // Sélectionner le premier item si aucun n'est sélectionné
+                    const indexToSelect = editSelectedIndex !== -1 ? editSelectedIndex : 0;
+                    selectEditTag(editTagSuggestions[indexToSelect]);
                     return;
                 } else if (e.key === 'Escape') {
                     hideEditSuggestions();
@@ -228,6 +232,81 @@ document.addEventListener('DOMContentLoaded', () => {
         autoResize(input);
     };
 
+    const normalizeUrl = (url) => {
+        if (!url) return url;
+        const trimmed = url.trim();
+        if (!trimmed.match(/^https?:\/\//i)) {
+            return 'http://' + trimmed;
+        }
+        return trimmed;
+    };
+
+    // Modal de recherche
+    let searchModal = null;
+    let searchInput = null;
+
+    const openSearchModal = () => {
+        if (searchModal) {
+            searchInput.focus();
+            return;
+        }
+
+        // Créer le modal
+        searchModal = document.createElement('div');
+        searchModal.id = 'search-modal';
+        searchModal.style.cssText = 'position:fixed;top:20px;left:50%;transform:translateX(-50%);width:90%;max-width:500px;z-index:10001;background:white;border-radius:12px;box-shadow:0 10px 40px rgba(0,0,0,0.3);padding:16px;';
+
+        const searchLabel = document.createElement('div');
+        searchLabel.textContent = 'Rechercher une tâche...';
+        searchLabel.style.cssText = 'font-size:0.75rem;color:#718096;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px;';
+
+        searchInput = document.createElement('input');
+        searchInput.type = 'text';
+        searchInput.placeholder = 'Tapez pour rechercher...';
+        searchInput.style.cssText = 'width:100%;padding:12px 16px;font-size:1rem;border:2px solid #e2e8f0;border-radius:8px;outline:none;box-sizing:border-box;';
+        searchInput.value = searchQuery;
+
+        // Filtre dynamique
+        searchInput.addEventListener('input', () => {
+            searchQuery = searchInput.value;
+            renderBoard();
+        });
+
+        // Fermer avec Échap
+        searchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                closeSearchModal();
+            }
+        });
+
+        searchModal.appendChild(searchLabel);
+        searchModal.appendChild(searchInput);
+        document.body.appendChild(searchModal);
+
+        // Overlay pour fermer en cliquant à l'extérieur
+        const overlay = document.createElement('div');
+        overlay.id = 'search-overlay';
+        overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:10000;background:rgba(0,0,0,0.3);';
+        overlay.addEventListener('click', closeSearchModal);
+        document.body.appendChild(overlay);
+
+        searchInput.focus();
+    };
+
+    const closeSearchModal = () => {
+        if (searchModal) {
+            searchModal.remove();
+            searchModal = null;
+            searchInput = null;
+        }
+        const overlay = document.getElementById('search-overlay');
+        if (overlay) {
+            overlay.remove();
+        }
+        searchQuery = '';
+        renderBoard();
+    };
+
     const saveTasks = async () => {
         try {
             const response = await fetch('/api/tasks', {
@@ -246,8 +325,42 @@ document.addEventListener('DOMContentLoaded', () => {
         // Clear all lists
         Object.values(lists).forEach(list => list.innerHTML = '');
 
+        // Show active filter indicator
+        let filterIndicator = document.getElementById('filter-indicator');
+        if (activeTagFilter) {
+            if (!filterIndicator) {
+                filterIndicator = document.createElement('div');
+                filterIndicator.id = 'filter-indicator';
+                filterIndicator.style.cssText = 'position:fixed;top:10px;left:50%;transform:translateX(-50%);background:#2d3748;color:white;padding:8px 16px;border-radius:20px;font-size:0.85rem;z-index:10000;display:flex;align-items:center;gap:8px;box-shadow:0 4px 12px rgba(0,0,0,0.3);';
+                document.body.appendChild(filterIndicator);
+            }
+            filterIndicator.innerHTML = `Filtré par: <strong>#${activeTagFilter}</strong> <span style="cursor:pointer;font-size:1.2rem;margin-left:4px;" title="Réinitialiser le filtre">×</span>`;
+            filterIndicator.querySelector('span').addEventListener('click', () => {
+                activeTagFilter = null;
+                renderBoard();
+            });
+            filterIndicator.style.display = 'flex';
+        } else if (filterIndicator) {
+            filterIndicator.style.display = 'none';
+        }
+
+        // Filter tasks by active tag if set
+        let filteredTasks = tasks;
+        if (activeTagFilter) {
+            filteredTasks = tasks.filter(task => task.tags && task.tags.includes(activeTagFilter));
+        }
+
+        // Filter tasks by search query
+        if (searchQuery) {
+            const query = searchQuery.toLowerCase();
+            filteredTasks = filteredTasks.filter(task =>
+                task.text.toLowerCase().includes(query) ||
+                (task.tags && task.tags.some(tag => tag.toLowerCase().includes(query)))
+            );
+        }
+
         // Sort tasks: pinned first, then by creation date
-        const sortedTasks = [...tasks].sort((a, b) => {
+        const sortedTasks = [...filteredTasks].sort((a, b) => {
             if (a.pinned && !b.pinned) return -1;
             if (!a.pinned && b.pinned) return 1;
             return 0;
@@ -279,32 +392,162 @@ document.addEventListener('DOMContentLoaded', () => {
                 textContent.textContent = removeTagsFromText(task.text);
                 taskItem.appendChild(textContent);
 
-                const displayTags = task.tags ? task.tags.filter(t => t !== 'prio') : [];
-                if (displayTags.length > 0) {
-                    const tagsContainer = document.createElement('div');
-                    tagsContainer.classList.add('task-tags');
-                    displayTags.forEach(tag => {
-                        const tagEl = document.createElement('span');
-                        tagEl.classList.add('task-tag');
-                        tagEl.textContent = tag;
-                        tagEl.style.backgroundColor = getTagColor(tag);
+                // Conteneur pour tags et liens - toujours créé pour afficher le bouton + Lien
+                const metadataContainer = document.createElement('div');
+                metadataContainer.classList.add('task-metadata');
 
-                        // Bouton de suppression du tag
-                        const removeBtn = document.createElement('span');
-                        removeBtn.classList.add('tag-remove');
-                        removeBtn.textContent = '×';
-                        removeBtn.addEventListener('click', async (e) => {
+                // Préparer les tags et liens à afficher
+                const displayTags = task.tags ? task.tags.filter(t => t !== 'prio') : [];
+                const hasLinks = task.links && task.links.length > 0;
+
+                // Afficher les tags existants (avec préfixe #)
+                displayTags.forEach(tag => {
+                    const tagEl = document.createElement('span');
+                    tagEl.classList.add('task-tag');
+                    if (activeTagFilter === tag) {
+                        tagEl.classList.add('active-filter');
+                    }
+                    tagEl.textContent = '#' + tag;
+                    tagEl.style.backgroundColor = getTagColor(tag);
+
+                    // Cliquer sur le tag pour filtrer
+                    tagEl.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        if (activeTagFilter === tag) {
+                            activeTagFilter = null; // Désactiver le filtre si déjà actif
+                        } else {
+                            activeTagFilter = tag;
+                        }
+                        renderBoard();
+                    });
+
+                    // Bouton de suppression du tag
+                    const removeBtn = document.createElement('span');
+                    removeBtn.classList.add('tag-remove');
+                    removeBtn.textContent = '×';
+                    removeBtn.addEventListener('click', async (e) => {
+                        e.stopPropagation();
+                        task.tags = task.tags.filter(t => t !== tag);
+                        await saveTasks();
+                        renderBoard();
+                    });
+                    tagEl.appendChild(removeBtn);
+
+                    metadataContainer.appendChild(tagEl);
+                });
+
+                // Afficher les liens existants (avec préfixe @)
+                if (hasLinks) {
+                    task.links.forEach(link => {
+                        const linkEl = document.createElement('a');
+                        linkEl.classList.add('task-link-badge');
+                        linkEl.href = link.url;
+                        linkEl.target = '_blank';
+                        linkEl.rel = 'noopener noreferrer';
+                        linkEl.textContent = '@' + link.title;
+
+                        // Bouton de suppression du lien
+                        const removeLinkBtn = document.createElement('span');
+                        removeLinkBtn.classList.add('link-remove');
+                        removeLinkBtn.textContent = '×';
+                        removeLinkBtn.addEventListener('click', async (e) => {
+                            e.preventDefault();
                             e.stopPropagation();
-                            task.tags = task.tags.filter(t => t !== tag);
+                            task.links = task.links.filter(l => l.url !== link.url);
                             await saveTasks();
                             renderBoard();
                         });
-                        tagEl.appendChild(removeBtn);
 
-                        tagsContainer.appendChild(tagEl);
+                        linkEl.appendChild(removeLinkBtn);
+                        metadataContainer.appendChild(linkEl);
                     });
-                    taskItem.appendChild(tagsContainer);
                 }
+
+                // Bouton pour ajouter un lien (sur la même ligne que les tags)
+                const addLinkBtn = document.createElement('button');
+                addLinkBtn.classList.add('add-link-btn');
+                addLinkBtn.textContent = '+ Lien';
+                addLinkBtn.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+
+                    // Créer une popup personnalisée
+                    const modal = document.createElement('div');
+                    modal.classList.add('link-modal-overlay');
+
+                    const modalContent = document.createElement('div');
+                    modalContent.classList.add('link-modal-content');
+
+                    const titleInput = document.createElement('input');
+                    titleInput.type = 'text';
+                    titleInput.placeholder = 'Titre du lien';
+                    titleInput.classList.add('link-modal-input');
+
+                    const urlInput = document.createElement('input');
+                    urlInput.type = 'url';
+                    urlInput.placeholder = 'https://exemple.com';
+                    urlInput.classList.add('link-modal-input');
+
+                    const buttonsContainer = document.createElement('div');
+                    buttonsContainer.classList.add('link-modal-buttons');
+
+                    const cancelBtn = document.createElement('button');
+                    cancelBtn.textContent = 'Annuler';
+                    cancelBtn.classList.add('link-modal-btn', 'link-modal-cancel');
+
+                    const saveBtn = document.createElement('button');
+                    saveBtn.textContent = 'Ajouter';
+                    saveBtn.classList.add('link-modal-btn', 'link-modal-save');
+
+                    buttonsContainer.appendChild(cancelBtn);
+                    buttonsContainer.appendChild(saveBtn);
+
+                    modalContent.appendChild(titleInput);
+                    modalContent.appendChild(urlInput);
+                    modalContent.appendChild(buttonsContainer);
+                    modal.appendChild(modalContent);
+                    document.body.appendChild(modal);
+
+                    titleInput.focus();
+
+                    const closeModal = () => {
+                        document.body.removeChild(modal);
+                    };
+
+                    cancelBtn.addEventListener('click', closeModal);
+
+                    saveBtn.addEventListener('click', async () => {
+                        const title = titleInput.value.trim();
+                        const url = normalizeUrl(urlInput.value.trim());
+                        if (title && url) {
+                            if (!task.links) task.links = [];
+                            task.links.push({ title: title, url: url });
+                            await saveTasks();
+                            renderBoard();
+                        }
+                        closeModal();
+                    });
+
+                    urlInput.addEventListener('keydown', async (evt) => {
+                        if (evt.key === 'Enter') {
+                            const title = titleInput.value.trim();
+                            const url = normalizeUrl(urlInput.value.trim());
+                            if (title && url) {
+                                if (!task.links) task.links = [];
+                                task.links.push({ title: title, url: url });
+                                await saveTasks();
+                                renderBoard();
+                            }
+                            closeModal();
+                        }
+                    });
+
+                    modal.addEventListener('click', (evt) => {
+                        if (evt.target === modal) closeModal();
+                    });
+                });
+                metadataContainer.appendChild(addLinkBtn);
+
+                taskItem.appendChild(metadataContainer);
 
                 taskItem.title = (task.pinned ? 'Épinglée ' : '') + (hasPrio ? 'Prioritaire ' : '') + '(P pour épingler)';
                 list.appendChild(taskItem);
@@ -324,7 +567,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 tags: tags.filter(t => t !== 'pin'),
                 pinned: isPinned
             };
-            tasks.push(newTask);
+            tasks.unshift(newTask); // Ajouter au début du tableau pour afficher en haut
             await saveTasks();
             renderBoard();
             newTaskInput.value = '';
@@ -473,9 +716,11 @@ document.addEventListener('DOMContentLoaded', () => {
             e.preventDefault();
             selectedSuggestionIndex = selectedSuggestionIndex <= 0 ? tagSuggestions.length - 1 : selectedSuggestionIndex - 1;
             updateSelection();
-        } else if (e.key === 'Enter' && selectedSuggestionIndex !== -1) {
+        } else if (e.key === 'Enter' && tagSuggestions.length > 0) {
             e.preventDefault();
-            selectTag(tagSuggestions[selectedSuggestionIndex]);
+            // Sélectionner le premier item si aucun n'est sélectionné
+            const indexToSelect = selectedSuggestionIndex !== -1 ? selectedSuggestionIndex : 0;
+            selectTag(tagSuggestions[indexToSelect]);
         } else if (e.key === 'Escape') {
             hideTagSuggestions();
         }
@@ -492,12 +737,46 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     window.addEventListener('keydown', async (e) => {
-        if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) {
+        // Fermer la recherche avec Échap (prioritaire)
+        if (e.key === 'Escape' && searchModal) {
+            e.preventDefault();
+            closeSearchModal();
+            return;
+        }
+
+        // Ouvrir le modal de recherche avec Cmd/Ctrl+Shift+F
+        if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === 'f' || e.key === 'F')) {
+            e.preventDefault();
+            openSearchModal();
+            return;
+        }
+
+        // Ouvrir le modal de recherche avec la touche /
+        if (e.key === '/' && !searchModal) {
+            const activeEl = document.activeElement;
+            if (!activeEl || (activeEl.tagName !== 'INPUT' && activeEl.tagName !== 'TEXTAREA')) {
+                e.preventDefault();
+                openSearchModal();
+                return;
+            }
+        }
+
+        // Ignorer les raccourcis si on est dans un input/textarea (sauf pour les cas ci-dessus)
+        const activeEl = document.activeElement;
+        if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA')) {
+            return;
+        }
+
+        // Désactiver le filtre de tag avec Échap
+        if (e.key === 'Escape' && activeTagFilter) {
+            e.preventDefault();
+            activeTagFilter = null;
+            renderBoard();
             return;
         }
 
         // Focus sur l'input quand on appuie sur 'n' ou 'N'
-        if ((e.key === 'n' || e.key === 'N') && !selectedTaskId) {
+        if ((e.key === 'n' || e.key === 'N') && !selectedTaskId && !searchModal) {
             e.preventDefault();
             newTaskInput.focus();
             return;
@@ -569,17 +848,20 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!task) return;
 
             const currentColIndex = columnOrder.indexOf(task.status);
-            let newColIndex;
+            let newColIndex = currentColIndex;
 
-            if (e.key === 'ArrowLeft') {
-                newColIndex = currentColIndex <= 0 ? columnOrder.length - 1 : currentColIndex - 1;
-            } else {
-                newColIndex = currentColIndex >= columnOrder.length - 1 ? 0 : currentColIndex + 1;
+            if (e.key === 'ArrowLeft' && currentColIndex > 0) {
+                newColIndex = currentColIndex - 1;
+            } else if (e.key === 'ArrowRight' && currentColIndex < columnOrder.length - 1) {
+                newColIndex = currentColIndex + 1;
             }
 
-            task.status = columnOrder[newColIndex];
-            await saveTasks();
-            renderBoard();
+            // Ne déplacer que si la colonne a changé
+            if (newColIndex !== currentColIndex) {
+                task.status = columnOrder[newColIndex];
+                await saveTasks();
+                renderBoard();
+            }
         }
 
         if (e.key === 'Enter' && selectedTaskId) {
